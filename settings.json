@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tonemapping": "none",
+  "tonemapping": "linear",
   "highPrecisionRendering": false,
   "background": {
     "color": [
@@ -16,7 +16,7 @@
     },
     "bloom": {
       "enabled": false,
-      "intensity": 1,
+      "intensity": 0.1,
       "blurLevel": 2
     },
     "grading": {
