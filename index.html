@@ -575,28 +575,548 @@
         </svg>
 
         <!-- Application Script -->
-        <script type="module">
-            import { main } from './index.js';
+<!-- Application Script -->
+<script type="module">
+    import { main } from './index.js';
 
-            const { config, settings } = window.sse;
-            const { poster } = config;
+    const { config, settings } = window.sse;
+    const { poster } = config;
 
-            // Show the poster image
-            if (poster) {
-                const element = document.getElementById('poster');
-                element.style.setProperty('--poster-url', `url(${poster.src})`);
-                element.style.display = 'block';
-                element.style.filter = 'blur(40px)';
+    /*
+     * ============================================================
+     * SuperSplat Viewer 固定設定
+     * ============================================================
+     *
+     * ・カメラアニメーションを停止
+     * ・常にオービットモードで開始
+     * ・フライトモードを無効化
+     * ・ウォークモードを無効化
+     * ・Gaming Controlsを無効化
+     * ・フライト／ウォーク関連UIを非表示
+     */
 
-                // hide the canvas
-                document.documentElement.style.setProperty('--canvas-opacity', '0');
+    config.noanim = true;
+
+    /*
+     * オービット専用表示のCSS
+     */
+    const orbitOnlyStyle = document.createElement('style');
+
+    orbitOnlyStyle.textContent = `
+        /*
+         * フライト、ウォーク、Gaming Controls関連UI
+         */
+        #flyCamera,
+        #fpsCamera,
+        #joystickBase,
+        #walkHint,
+        #gamingControlsDivider,
+        #gamingControlsRow {
+            display: none !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+        }
+
+        /*
+         * オービットボタン
+         */
+        #orbitCamera {
+            display: flex !important;
+            visibility: visible !important;
+            pointer-events: auto !important;
+            border-radius: 8px !important;
+        }
+
+        /*
+         * フライト／ウォークのヘルプ内容
+         */
+        #desktopFlyClickToFly,
+        #desktopFlyGamingControls,
+        #desktopClickToWalk,
+        #desktopGamingControls,
+        #touchFlyClickToWalk,
+        #touchFlyGamingControls,
+        #touchClickToWalk,
+        #touchGamingControls {
+            display: none !important;
+            visibility: hidden !important;
+        }
+    `;
+
+    document.head.appendChild(orbitOnlyStyle);
+
+    /*
+     * フライト、ウォーク、Gaming Controlsへ移行するキー
+     */
+    const blockedCodes = new Set([
+        /*
+         * モード切り替え
+         */
+        'Digit2',
+        'Numpad2',
+        'Digit3',
+        'Numpad3',
+
+        /*
+         * フライト／ウォーク移動
+         */
+        'KeyW',
+        'KeyA',
+        'KeyS',
+        'KeyD',
+        'KeyQ',
+        'KeyE',
+
+        /*
+         * Gaming Controls
+         */
+        'KeyG'
+    ]);
+
+    /*
+     * 入力フォーム操作中か確認
+     */
+    const isEditableElement = (element) => {
+        return (
+            element instanceof HTMLInputElement ||
+            element instanceof HTMLTextAreaElement ||
+            element instanceof HTMLSelectElement ||
+            element?.isContentEditable === true
+        );
+    };
+
+    /*
+     * フライト／ウォーク関連キーを無効化
+     */
+    const blockCameraModeKey = (event) => {
+        if (isEditableElement(event.target)) {
+            return;
+        }
+
+        if (!blockedCodes.has(event.code)) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+    };
+
+    /*
+     * Viewer側より先にイベントを取得するため、
+     * キャプチャフェーズを使用する
+     */
+    window.addEventListener(
+        'keydown',
+        blockCameraModeKey,
+        true
+    );
+
+    window.addEventListener(
+        'keyup',
+        blockCameraModeKey,
+        true
+    );
+
+    /*
+     * フライト／ウォークボタンの操作を無効化
+     */
+    const blockCameraModeButton = (event) => {
+        if (!(event.target instanceof Element)) {
+            return;
+        }
+
+        const blockedButton = event.target.closest(
+            '#flyCamera, #fpsCamera'
+        );
+
+        if (!blockedButton) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+    };
+
+    document.addEventListener(
+        'pointerdown',
+        blockCameraModeButton,
+        true
+    );
+
+    document.addEventListener(
+        'click',
+        blockCameraModeButton,
+        true
+    );
+
+    document.addEventListener(
+        'touchstart',
+        blockCameraModeButton,
+        {
+            capture: true,
+            passive: false
+        }
+    );
+
+    /*
+     * 指定した要素を非表示にする
+     */
+    const hideElement = (element) => {
+        if (!element) {
+            return;
+        }
+
+        element.classList.add('hidden');
+
+        element.style.setProperty(
+            'display',
+            'none',
+            'important'
+        );
+
+        element.style.setProperty(
+            'visibility',
+            'hidden',
+            'important'
+        );
+
+        element.style.setProperty(
+            'pointer-events',
+            'none',
+            'important'
+        );
+
+        element.setAttribute('aria-hidden', 'true');
+        element.setAttribute('tabindex', '-1');
+    };
+
+    /*
+     * UIをオービット専用にする
+     */
+    const enforceOrbitOnlyUI = () => {
+        const hiddenElementIds = [
+            'flyCamera',
+            'fpsCamera',
+            'joystickBase',
+            'walkHint',
+            'gamingControlsDivider',
+            'gamingControlsRow'
+        ];
+
+        hiddenElementIds.forEach((id) => {
+            hideElement(document.getElementById(id));
+        });
+
+        const orbitButton =
+            document.getElementById('orbitCamera');
+
+        if (!orbitButton) {
+            return;
+        }
+
+        orbitButton.classList.remove('hidden');
+        orbitButton.classList.remove('left');
+        orbitButton.classList.remove('right');
+
+        orbitButton.style.setProperty(
+            'display',
+            'flex',
+            'important'
+        );
+
+        orbitButton.style.setProperty(
+            'visibility',
+            'visible',
+            'important'
+        );
+
+        orbitButton.style.setProperty(
+            'pointer-events',
+            'auto',
+            'important'
+        );
+
+        orbitButton.style.setProperty(
+            'border-radius',
+            '8px',
+            'important'
+        );
+
+        orbitButton.setAttribute(
+            'aria-pressed',
+            'true'
+        );
+
+        orbitButton.setAttribute(
+            'aria-label',
+            'オービットモード'
+        );
+
+        orbitButton.setAttribute(
+            'title',
+            'オービットモード'
+        );
+    };
+
+    /*
+     * ヘルプ画面のセクションを非表示にする
+     */
+    const hideHelpSections = (
+        panel,
+        sectionKeys
+    ) => {
+        if (!panel) {
+            return;
+        }
+
+        const headings = Array.from(
+            panel.querySelectorAll('h1')
+        );
+
+        headings.forEach((heading) => {
+            const sectionKey =
+                heading.getAttribute('data-i18n');
+
+            if (!sectionKeys.includes(sectionKey)) {
+                return;
             }
 
-            document.addEventListener('DOMContentLoaded', async () => {
-                const canvas = document.getElementById('application-canvas');
+            let currentElement = heading;
+
+            while (currentElement) {
+                const nextElement =
+                    currentElement.nextElementSibling;
+
+                hideElement(currentElement);
+
+                /*
+                 * 次の見出しに到達したら終了
+                 */
+                if (
+                    nextElement &&
+                    nextElement.tagName === 'H1'
+                ) {
+                    break;
+                }
+
+                currentElement = nextElement;
+            }
+        });
+    };
+
+    /*
+     * ヘルプをオービットモード専用にする
+     */
+    const cleanHelpPanel = () => {
+        hideHelpSections(
+            document.getElementById(
+                'desktopInfoPanel'
+            ),
+            [
+                'help.section.fly',
+                'help.section.walk',
+                'help.section.modes'
+            ]
+        );
+
+        hideHelpSections(
+            document.getElementById(
+                'touchInfoPanel'
+            ),
+            [
+                'help.section.fly',
+                'help.section.walk'
+            ]
+        );
+    };
+
+    /*
+     * オービットモードを選択
+     */
+    const selectOrbitMode = () => {
+        const orbitButton =
+            document.getElementById('orbitCamera');
+
+        if (!orbitButton) {
+            return;
+        }
+
+        orbitButton.click();
+
+        orbitButton.setAttribute(
+            'aria-pressed',
+            'true'
+        );
+    };
+
+    /*
+     * ポスター画像を表示
+     */
+    if (poster) {
+        const posterElement =
+            document.getElementById('poster');
+
+        if (posterElement) {
+            posterElement.style.setProperty(
+                '--poster-url',
+                `url(${poster.src})`
+            );
+
+            posterElement.style.display = 'block';
+            posterElement.style.filter = 'blur(40px)';
+        }
+
+        /*
+         * 読み込み中はCanvasを非表示
+         */
+        document.documentElement.style.setProperty(
+            '--canvas-opacity',
+            '0'
+        );
+    }
+
+    /*
+     * Viewer初期化
+     */
+    document.addEventListener(
+        'DOMContentLoaded',
+        async () => {
+            try {
+                const canvas = document.getElementById(
+                    'application-canvas'
+                );
+
+                if (!canvas) {
+                    throw new Error(
+                        'application-canvasが見つかりません。'
+                    );
+                }
+
+                /*
+                 * 初期UIをオービット専用に変更
+                 */
+                enforceOrbitOnlyUI();
+                cleanHelpPanel();
+
+                /*
+                 * settings.jsonを読み込む
+                 */
                 const settingsJson = await settings;
-                const viewer = await main(canvas, settingsJson, config);
-            });
-        </script>
+
+                /*
+                 * アニメーションを完全に削除
+                 */
+                settingsJson.animTracks = [];
+
+                /*
+                 * 最初のカメラ位置から開始
+                 */
+                settingsJson.startMode = 'default';
+
+                /*
+                 * 保存した初期姿勢を使用
+                 */
+                settingsJson.hasStartPose = true;
+
+                /*
+                 * URLに関係なくアニメーション停止
+                 */
+                config.noanim = true;
+
+                /*
+                 * Viewerを起動
+                 */
+                const viewer = await main(
+                    canvas,
+                    settingsJson,
+                    config
+                );
+
+                /*
+                 * 開発者ツールから参照可能にする
+                 */
+                window.superSplatViewer = viewer;
+
+                /*
+                 * Viewer初期化直後にオービットへ変更
+                 */
+                requestAnimationFrame(() => {
+                    enforceOrbitOnlyUI();
+                    cleanHelpPanel();
+                    selectOrbitMode();
+                });
+
+                /*
+                 * UIイベント登録後に再度オービットを選択
+                 */
+                window.setTimeout(() => {
+                    enforceOrbitOnlyUI();
+                    cleanHelpPanel();
+                    selectOrbitMode();
+                }, 300);
+
+                window.setTimeout(() => {
+                    enforceOrbitOnlyUI();
+                    cleanHelpPanel();
+                    selectOrbitMode();
+                }, 1000);
+
+                /*
+                 * ViewerがUIを書き換えた場合にも、
+                 * フライト／ウォーク関連UIを再び非表示にする
+                 */
+                const ui =
+                    document.getElementById('ui');
+
+                if (ui) {
+                    let updateScheduled = false;
+
+                    const observer =
+                        new MutationObserver(() => {
+                            if (updateScheduled) {
+                                return;
+                            }
+
+                            updateScheduled = true;
+
+                            requestAnimationFrame(() => {
+                                updateScheduled = false;
+                                enforceOrbitOnlyUI();
+                                cleanHelpPanel();
+                            });
+                        });
+
+                    observer.observe(ui, {
+                        subtree: true,
+                        childList: true,
+                        attributes: true,
+                        attributeFilter: [
+                            'class',
+                            'style',
+                            'aria-pressed'
+                        ]
+                    });
+                }
+            } catch (error) {
+                console.error(
+                    'SuperSplat Viewerの起動に失敗しました。',
+                    error
+                );
+
+                const loadingText =
+                    document.getElementById(
+                        'loadingText'
+                    );
+
+                if (loadingText) {
+                    loadingText.textContent =
+                        '3Dデータの読み込みに失敗しました。';
+                }
+            }
+        }
+    );
+</script>
     </body>
 </html>
