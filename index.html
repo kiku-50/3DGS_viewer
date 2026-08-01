@@ -576,11 +576,11 @@
 
         <!-- Application Script -->
 <!-- Application Script -->
-<!-- Orbit-only settings -->
+<!-- Orbit-only settings -->>
+<!-- Orbit-only viewer settings -->
 <style>
     /*
-     * フライト／ウォーク関連のUIを非表示にする。
-     * JavaScriptから参照できるよう、DOM要素自体は残す。
+     * フライトおよびウォーク関連のUIを非表示にする。
      */
     #flyCamera,
     #fpsCamera,
@@ -601,17 +601,81 @@
     }
 
     /*
-     * フライト／ウォークのヘルプを非表示にする。
+     * 画面中央の回転中心マーカー。
+     *
+     * pointer-events: none により、
+     * マウス操作を妨げない。
      */
-    #desktopFlyClickToFly,
-    #desktopFlyGamingControls,
-    #desktopClickToWalk,
-    #desktopGamingControls,
-    #touchFlyClickToWalk,
-    #touchFlyGamingControls,
-    #touchClickToWalk,
-    #touchGamingControls {
-        display: none !important;
+    #orbitCenterMarker {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        width: 22px;
+        height: 22px;
+        z-index: 1000;
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+        filter:
+            drop-shadow(0 0 2px rgba(0, 0, 0, 1))
+            drop-shadow(0 0 5px rgba(0, 0, 0, 0.7));
+    }
+
+    /*
+     * 中央の円。
+     */
+    #orbitCenterMarker::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 7px;
+        height: 7px;
+        box-sizing: border-box;
+        border: 2px solid rgba(255, 255, 255, 0.95);
+        border-radius: 50%;
+        background: rgba(242, 103, 34, 0.9);
+        transform: translate(-50%, -50%);
+    }
+
+    /*
+     * 水平方向の線。
+     */
+    #orbitCenterMarker::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 50%;
+        width: 100%;
+        height: 1px;
+        background: rgba(255, 255, 255, 0.9);
+        transform: translateY(-50%);
+    }
+
+    /*
+     * 垂直方向の線。
+     */
+    #orbitCenterMarkerVertical {
+        position: absolute;
+        left: 50%;
+        top: 0;
+        width: 1px;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.9);
+        transform: translateX(-50%);
+    }
+
+    /*
+     * 回転操作中はマーカーをオレンジ色にする。
+     */
+    body.orbit-dragging #orbitCenterMarker::before {
+        background: rgba(255, 145, 45, 1);
+        border-color: white;
+        transform: translate(-50%, -50%) scale(1.25);
+    }
+
+    body.orbit-dragging #orbitCenterMarker::after,
+    body.orbit-dragging #orbitCenterMarkerVertical {
+        background: rgba(255, 160, 65, 1);
     }
 </style>
 
@@ -628,28 +692,27 @@
     config.noanim = true;
 
     /*
-     * フライト／ウォークへのモード切り替えだけを禁止する。
-     *
-     * 2：フライトモード
-     * 3：ウォークモード
-     * G：Gaming Controls
-     *
-     * WASDなどは、オービットモードでは不要なので無効化する。
+     * 画面中央へ回転中心マーカーを追加する。
      */
-    const blockedCodes = new Set([
-        'Digit2',
-        'Numpad2',
-        'Digit3',
-        'Numpad3',
-        'KeyG',
-        'KeyW',
-        'KeyA',
-        'KeyS',
-        'KeyD',
-        'KeyQ',
-        'KeyE'
-    ]);
+    const centerMarker = document.createElement('div');
+    centerMarker.id = 'orbitCenterMarker';
+    centerMarker.setAttribute(
+        'aria-label',
+        'カメラの回転中心'
+    );
 
+    const centerMarkerVertical =
+        document.createElement('span');
+
+    centerMarkerVertical.id =
+        'orbitCenterMarkerVertical';
+
+    centerMarker.appendChild(centerMarkerVertical);
+    document.body.appendChild(centerMarker);
+
+    /*
+     * 入力フォームを操作中か判定する。
+     */
     const isEditableElement = (element) => {
         return (
             element instanceof HTMLInputElement ||
@@ -659,7 +722,24 @@
         );
     };
 
-    const blockFlyKeys = (event) => {
+    /*
+     * フライトおよびウォークへの切り替えだけを防ぐ。
+     *
+     * 2：フライトモード
+     * 3：ウォークモード
+     * G：Gaming Controls
+     *
+     * 1、F、Rなどの通常操作は利用できる。
+     */
+    const blockedCodes = new Set([
+        'Digit2',
+        'Numpad2',
+        'Digit3',
+        'Numpad3',
+        'KeyG'
+    ]);
+
+    const blockModeChangeKeys = (event) => {
         if (isEditableElement(event.target)) {
             return;
         }
@@ -673,34 +753,31 @@
         event.stopImmediatePropagation();
     };
 
-    /*
-     * Viewerより先にキー入力を処理する。
-     */
     window.addEventListener(
         'keydown',
-        blockFlyKeys,
+        blockModeChangeKeys,
         true
     );
 
     window.addEventListener(
         'keyup',
-        blockFlyKeys,
+        blockModeChangeKeys,
         true
     );
 
     /*
-     * フライト／ウォークボタンを操作できないようにする。
+     * フライト／ウォークボタンの操作を防ぐ。
      */
-    const blockModeButton = (event) => {
+    const blockModeButtons = (event) => {
         if (!(event.target instanceof Element)) {
             return;
         }
 
-        const button = event.target.closest(
+        const blockedButton = event.target.closest(
             '#flyCamera, #fpsCamera'
         );
 
-        if (!button) {
+        if (!blockedButton) {
             return;
         }
 
@@ -711,13 +788,13 @@
 
     document.addEventListener(
         'pointerdown',
-        blockModeButton,
+        blockModeButtons,
         true
     );
 
     document.addEventListener(
         'click',
-        blockModeButton,
+        blockModeButtons,
         true
     );
 
@@ -748,9 +825,10 @@
         'DOMContentLoaded',
         async () => {
             try {
-                const canvas = document.getElementById(
-                    'application-canvas'
-                );
+                const canvas =
+                    document.getElementById(
+                        'application-canvas'
+                    );
 
                 if (!canvas) {
                     throw new Error(
@@ -761,17 +839,14 @@
                 const settingsJson = await settings;
 
                 /*
-                 * 動画のようなカメラアニメーションを削除する。
+                 * カメラアニメーションを完全に削除する。
                  */
                 settingsJson.animTracks = [];
                 settingsJson.startMode = 'default';
                 settingsJson.hasStartPose = true;
 
                 /*
-                 * Viewerを起動する。
-                 *
-                 * オービットボタンの自動クリックは行わない。
-                 * SuperSplatの初期オービット状態をそのまま使う。
+                 * ビューアを起動する。
                  */
                 const viewer = await main(
                     canvas,
@@ -780,6 +855,82 @@
                 );
 
                 window.superSplatViewer = viewer;
+
+                /*
+                 * Viewer側のイベント設定完了後に、
+                 * オービットモードを一度だけ選択する。
+                 *
+                 * 継続的な監視や自動クリックは行わないため、
+                 * 操作中にカメラが戻されることはない。
+                 */
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        const orbitButton =
+                            document.getElementById(
+                                'orbitCamera'
+                            );
+
+                        orbitButton?.click();
+                    });
+                });
+
+                /*
+                 * 左ボタンのドラッグ中であることを表示する。
+                 * カメラ処理そのものはViewerへ任せるため、
+                 * 水平方向および垂直方向の回転を妨げない。
+                 */
+                canvas.addEventListener(
+                    'pointerdown',
+                    (event) => {
+                        if (event.button !== 0) {
+                            return;
+                        }
+
+                        document.body.classList.add(
+                            'orbit-dragging'
+                        );
+
+                        canvas.setPointerCapture?.(
+                            event.pointerId
+                        );
+                    }
+                );
+
+                const stopOrbitDragging = (event) => {
+                    document.body.classList.remove(
+                        'orbit-dragging'
+                    );
+
+                    if (
+                        event?.pointerId !== undefined &&
+                        canvas.hasPointerCapture?.(
+                            event.pointerId
+                        )
+                    ) {
+                        canvas.releasePointerCapture?.(
+                            event.pointerId
+                        );
+                    }
+                };
+
+                canvas.addEventListener(
+                    'pointerup',
+                    stopOrbitDragging
+                );
+
+                canvas.addEventListener(
+                    'pointercancel',
+                    stopOrbitDragging
+                );
+
+                window.addEventListener(
+                    'blur',
+                    () => {
+                        document.body.classList.remove(
+                            'orbit-dragging'
+                        );
+                    }
+                );
             } catch (error) {
                 console.error(
                     'SuperSplat Viewerの起動に失敗しました。',
@@ -787,7 +938,19 @@
                 );
 
                 const loadingText =
-                    document.getElementById('loadingText');
+                    document.getElementById(
+                        'loadingText'
+                    );
+
+                if (loadingText) {
+                    loadingText.textContent =
+                        '3Dデータの読み込みに失敗しました。';
+                }
+            }
+        }
+    );
+</script>
+
 
                 if (loadingText) {
                     loadingText.textContent =
