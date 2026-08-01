@@ -576,12 +576,13 @@
 
         <!-- Application Script -->
 <!-- Application Script -->
-<!-- Orbit-only settings -->>
-<!-- Orbit-only viewer settings -->
+<!-- 見回し専用モード -->
 <style>
     /*
-     * フライトおよびウォーク関連のUIを非表示にする。
+     * カメラモード切り替えボタンを非表示にする。
+     * 内部的にはFlyモードを「見回し専用」として使用する。
      */
+    #orbitCamera,
     #flyCamera,
     #fpsCamera,
     #joystickBase,
@@ -593,54 +594,42 @@
     }
 
     /*
-     * オービットボタンを単独表示にする。
+     * 画面中央の注視方向マーカー
      */
-    #orbitCamera {
-        display: flex !important;
-        border-radius: 8px !important;
-    }
-
-    /*
-     * 画面中央の回転中心マーカー。
-     *
-     * pointer-events: none により、
-     * マウス操作を妨げない。
-     */
-    #orbitCenterMarker {
+    #lookCenterMarker {
         position: fixed;
         left: 50%;
         top: 50%;
-        width: 22px;
-        height: 22px;
+        width: 18px;
+        height: 18px;
         z-index: 1000;
         pointer-events: none;
         transform: translate(-50%, -50%);
-        filter:
-            drop-shadow(0 0 2px rgba(0, 0, 0, 1))
-            drop-shadow(0 0 5px rgba(0, 0, 0, 0.7));
+        opacity: 0.85;
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9));
     }
 
     /*
-     * 中央の円。
+     * 中央の点
      */
-    #orbitCenterMarker::before {
+    #lookCenterMarker::before {
         content: "";
         position: absolute;
         left: 50%;
         top: 50%;
-        width: 7px;
-        height: 7px;
+        width: 6px;
+        height: 6px;
         box-sizing: border-box;
-        border: 2px solid rgba(255, 255, 255, 0.95);
+        border: 1.5px solid #ffffff;
         border-radius: 50%;
-        background: rgba(242, 103, 34, 0.9);
+        background: #f26722;
         transform: translate(-50%, -50%);
     }
 
     /*
-     * 水平方向の線。
+     * 水平線
      */
-    #orbitCenterMarker::after {
+    #lookCenterMarker::after {
         content: "";
         position: absolute;
         left: 0;
@@ -652,9 +641,9 @@
     }
 
     /*
-     * 垂直方向の線。
+     * 垂直線
      */
-    #orbitCenterMarkerVertical {
+    #lookCenterMarkerVertical {
         position: absolute;
         left: 50%;
         top: 0;
@@ -665,17 +654,47 @@
     }
 
     /*
-     * 回転操作中はマーカーをオレンジ色にする。
+     * 左ドラッグ中はマーカーを強調する。
      */
-    body.orbit-dragging #orbitCenterMarker::before {
-        background: rgba(255, 145, 45, 1);
-        border-color: white;
-        transform: translate(-50%, -50%) scale(1.25);
+    body.look-dragging #lookCenterMarker {
+        opacity: 1;
     }
 
-    body.orbit-dragging #orbitCenterMarker::after,
-    body.orbit-dragging #orbitCenterMarkerVertical {
-        background: rgba(255, 160, 65, 1);
+    body.look-dragging #lookCenterMarker::before {
+        width: 8px;
+        height: 8px;
+        background: #ff9a3c;
+    }
+
+    /*
+     * 操作ガイド
+     */
+    #lookOperationHint {
+        position: fixed;
+        left: 50%;
+        bottom: max(24px, env(safe-area-inset-bottom));
+        z-index: 999;
+        padding: 7px 12px;
+        color: rgba(255, 255, 255, 0.92);
+        background: rgba(15, 18, 22, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 8px;
+        font-family:
+            system-ui,
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            sans-serif;
+        font-size: 12px;
+        line-height: 1.4;
+        pointer-events: none;
+        transform: translateX(-50%);
+        backdrop-filter: blur(8px);
+        transition: opacity 0.3s ease;
+    }
+
+    #lookOperationHint.hidden-hint {
+        opacity: 0;
     }
 </style>
 
@@ -687,31 +706,63 @@
     const { poster } = config;
 
     /*
-     * カメラアニメーションを停止する。
+     * カメラアニメーションを常に停止する。
      */
     config.noanim = true;
 
     /*
-     * 画面中央へ回転中心マーカーを追加する。
+     * 画面中央へ注視方向マーカーを追加する。
+     *
+     * この点はオービットの回転中心ではなく、
+     * 現在カメラが見ている方向を示す。
      */
-    const centerMarker = document.createElement('div');
-    centerMarker.id = 'orbitCenterMarker';
-    centerMarker.setAttribute(
+    const lookCenterMarker = document.createElement('div');
+    lookCenterMarker.id = 'lookCenterMarker';
+    lookCenterMarker.setAttribute(
         'aria-label',
-        'カメラの回転中心'
+        '現在の注視方向'
     );
 
-    const centerMarkerVertical =
-        document.createElement('span');
+    const markerVertical = document.createElement('span');
+    markerVertical.id = 'lookCenterMarkerVertical';
 
-    centerMarkerVertical.id =
-        'orbitCenterMarkerVertical';
-
-    centerMarker.appendChild(centerMarkerVertical);
-    document.body.appendChild(centerMarker);
+    lookCenterMarker.appendChild(markerVertical);
+    document.body.appendChild(lookCenterMarker);
 
     /*
-     * 入力フォームを操作中か判定する。
+     * 簡単な操作ガイドを追加する。
+     */
+    const operationHint = document.createElement('div');
+    operationHint.id = 'lookOperationHint';
+    operationHint.textContent =
+        '左ドラッグ：見回す　ホイール：前後移動　R：初期視点';
+
+    document.body.appendChild(operationHint);
+
+    /*
+     * 数秒後に操作ガイドを薄くする。
+     */
+    window.setTimeout(() => {
+        operationHint.classList.add('hidden-hint');
+    }, 6000);
+
+    /*
+     * ユーザーが画面へ触れた場合は、ガイドを一時表示する。
+     */
+    let hintTimer;
+
+    const showOperationHint = () => {
+        operationHint.classList.remove('hidden-hint');
+
+        window.clearTimeout(hintTimer);
+
+        hintTimer = window.setTimeout(() => {
+            operationHint.classList.add('hidden-hint');
+        }, 2500);
+    };
+
+    /*
+     * テキスト入力中か判定する。
      */
     const isEditableElement = (element) => {
         return (
@@ -723,23 +774,45 @@
     };
 
     /*
-     * フライトおよびウォークへの切り替えだけを防ぐ。
+     * カメラ位置が動くキーと、
+     * カメラモード切り替えキーを無効化する。
      *
-     * 2：フライトモード
-     * 3：ウォークモード
-     * G：Gaming Controls
-     *
-     * 1、F、Rなどの通常操作は利用できる。
+     * Flyモード自体は内部で使用するが、
+     * ユーザーは移動できないため「見回し専用」になる。
      */
     const blockedCodes = new Set([
+        /*
+         * Orbit／Fly／Walk切り替え
+         */
+        'Digit1',
+        'Numpad1',
         'Digit2',
         'Numpad2',
         'Digit3',
         'Numpad3',
-        'KeyG'
+
+        /*
+         * 前後左右および上下移動
+         */
+        'KeyW',
+        'KeyA',
+        'KeyS',
+        'KeyD',
+        'KeyQ',
+        'KeyE',
+
+        /*
+         * Gaming Controls
+         */
+        'KeyG',
+
+        /*
+         * シーン全体表示による位置変更
+         */
+        'KeyF'
     ]);
 
-    const blockModeChangeKeys = (event) => {
+    const blockMovementKeys = (event) => {
         if (isEditableElement(event.target)) {
             return;
         }
@@ -755,29 +828,36 @@
 
     window.addEventListener(
         'keydown',
-        blockModeChangeKeys,
+        blockMovementKeys,
         true
     );
 
     window.addEventListener(
         'keyup',
-        blockModeChangeKeys,
+        blockMovementKeys,
         true
     );
 
     /*
-     * フライト／ウォークボタンの操作を防ぐ。
+     * Orbit／Fly／Walkボタンのクリックを無効化する。
      */
-    const blockModeButtons = (event) => {
+    const blockCameraModeButtons = (event) => {
         if (!(event.target instanceof Element)) {
             return;
         }
 
-        const blockedButton = event.target.closest(
-            '#flyCamera, #fpsCamera'
+        const modeButton = event.target.closest(
+            '#orbitCamera, #flyCamera, #fpsCamera'
         );
 
-        if (!blockedButton) {
+        if (!modeButton) {
+            return;
+        }
+
+        /*
+         * スクリプトによる初期Fly選択時は許可する。
+         */
+        if (window.allowFlyModeSelection === true) {
             return;
         }
 
@@ -788,13 +868,13 @@
 
     document.addEventListener(
         'pointerdown',
-        blockModeButtons,
+        blockCameraModeButtons,
         true
     );
 
     document.addEventListener(
         'click',
-        blockModeButtons,
+        blockCameraModeButtons,
         true
     );
 
@@ -825,10 +905,9 @@
         'DOMContentLoaded',
         async () => {
             try {
-                const canvas =
-                    document.getElementById(
-                        'application-canvas'
-                    );
+                const canvas = document.getElementById(
+                    'application-canvas'
+                );
 
                 if (!canvas) {
                     throw new Error(
@@ -839,14 +918,14 @@
                 const settingsJson = await settings;
 
                 /*
-                 * カメラアニメーションを完全に削除する。
+                 * 動画のような自動カメラ移動を削除する。
                  */
                 settingsJson.animTracks = [];
                 settingsJson.startMode = 'default';
                 settingsJson.hasStartPose = true;
 
                 /*
-                 * ビューアを起動する。
+                 * Viewerを起動する。
                  */
                 const viewer = await main(
                     canvas,
@@ -857,27 +936,35 @@
                 window.superSplatViewer = viewer;
 
                 /*
-                 * Viewer側のイベント設定完了後に、
-                 * オービットモードを一度だけ選択する。
+                 * Viewer側のイベント登録後に、
+                 * Flyモードを一度だけ選択する。
                  *
-                 * 継続的な監視や自動クリックは行わないため、
-                 * 操作中にカメラが戻されることはない。
+                 * 左ドラッグが、
+                 * 「カメラ位置を固定した見回し操作」になる。
                  */
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
-                        const orbitButton =
+                        const flyButton =
                             document.getElementById(
-                                'orbitCamera'
+                                'flyCamera'
                             );
 
-                        orbitButton?.click();
+                        if (!flyButton) {
+                            console.warn(
+                                'flyCameraボタンが見つかりません。'
+                            );
+                            return;
+                        }
+
+                        window.allowFlyModeSelection = true;
+                        flyButton.click();
+                        window.allowFlyModeSelection = false;
                     });
                 });
 
                 /*
-                 * 左ボタンのドラッグ中であることを表示する。
-                 * カメラ処理そのものはViewerへ任せるため、
-                 * 水平方向および垂直方向の回転を妨げない。
+                 * 左ドラッグ中のマーカー表示を切り替える。
+                 * カメラ操作イベント自体は妨げない。
                  */
                 canvas.addEventListener(
                     'pointerdown',
@@ -887,48 +974,39 @@
                         }
 
                         document.body.classList.add(
-                            'orbit-dragging'
+                            'look-dragging'
                         );
 
-                        canvas.setPointerCapture?.(
-                            event.pointerId
-                        );
+                        showOperationHint();
                     }
                 );
 
-                const stopOrbitDragging = (event) => {
+                const finishLookDragging = () => {
                     document.body.classList.remove(
-                        'orbit-dragging'
+                        'look-dragging'
                     );
-
-                    if (
-                        event?.pointerId !== undefined &&
-                        canvas.hasPointerCapture?.(
-                            event.pointerId
-                        )
-                    ) {
-                        canvas.releasePointerCapture?.(
-                            event.pointerId
-                        );
-                    }
                 };
 
-                canvas.addEventListener(
+                window.addEventListener(
                     'pointerup',
-                    stopOrbitDragging
+                    finishLookDragging
                 );
 
-                canvas.addEventListener(
+                window.addEventListener(
                     'pointercancel',
-                    stopOrbitDragging
+                    finishLookDragging
                 );
 
                 window.addEventListener(
                     'blur',
-                    () => {
-                        document.body.classList.remove(
-                            'orbit-dragging'
-                        );
+                    finishLookDragging
+                );
+
+                canvas.addEventListener(
+                    'wheel',
+                    showOperationHint,
+                    {
+                        passive: true
                     }
                 );
             } catch (error) {
