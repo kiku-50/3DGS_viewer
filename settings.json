@@ -11,8 +11,8 @@
   },
   "postEffectSettings": {
     "sharpness": {
-      "enabled": false,
-      "amount": 0
+      "enabled": true,
+      "amount": 1
     },
     "bloom": {
       "enabled": false,
@@ -52,9 +52,9 @@
           10
         ],
         "target": [
-          0,
-          0,
-          0
+          -5.9980853457796,
+          30.839379267277707,
+          -31.315626408645564
         ],
         "fov": 75
       }
