@@ -43,6 +43,7 @@
     }
   },
   "animTracks": [],
+  "annotations": [],
   "cameras": [
     {
       "initial": {
